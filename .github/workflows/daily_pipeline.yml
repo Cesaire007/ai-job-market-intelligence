@@ -1,0 +1,59 @@
+name: Daily Data Pipeline
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Tous les jours à 6h UTC
+  workflow_dispatch:       # Lancement manuel possible
+
+jobs:
+  collect-and-analyze:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: job_intelligence
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          FRANCE_TRAVAIL_CLIENT_ID: ${{ secrets.FRANCE_TRAVAIL_CLIENT_ID }}
+          FRANCE_TRAVAIL_CLIENT_SECRET: ${{ secrets.FRANCE_TRAVAIL_CLIENT_SECRET }}
+          DATABASE_URL: postgresql://user:password@localhost:5432/job_intelligence
+        run: python -m src.pipeline
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/job_intelligence
+        run: pytest tests/ -v --tb=short
+
+      - name: Upload pipeline logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs
+          path: pipeline_*.log
+          retention-days: 7
